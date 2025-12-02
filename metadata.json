@@ -1,0 +1,5 @@
+{
+  "name": "N8N Webhook Chat Client",
+  "description": "A specialized chat interface for communicating with n8n webhooks, featuring strict connection validation, heartbeat checks, and full debug capabilities.",
+  "requestFramePermissions": []
+}
