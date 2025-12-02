@@ -22,20 +22,51 @@ console.log('--------------------------------------------------');
 
 // Endpoint solicitado: POST /api/webhook-receiver
 app.post('/api/webhook-receiver', (req, res) => {
-    console.log(`[POST] Recebido webhook do N8N na rota /api/webhook-receiver:`, JSON.stringify(req.body).substring(0, 100) + '...');
+    let payloadData = req.body;
+    console.log(`[POST] Recebido webhook bruto:`, JSON.stringify(payloadData).substring(0, 150));
 
-    const payload = JSON.stringify(req.body);
+    // --- LÓGICA DE EXTRAÇÃO DE JSON ANINHADO ---
+    // Objetivo: Converter { oi: '{"message": "oi"}' } em { "message": "oi" }
+    try {
+        const keys = Object.keys(payloadData);
+        // Se o objeto tem chaves, verificamos se alguma delas contém uma string JSON
+        if (keys.length > 0) {
+            for (const key of keys) {
+                const value = payloadData[key];
+                // Verifica se é string e parece um JSON (começa com {)
+                if (typeof value === 'string' && value.trim().startsWith('{')) {
+                    try {
+                        const parsedInner = JSON.parse(value);
+                        // Se o JSON interno tem campos relevantes de mensagem, promovemos ele
+                        // para ser o payload principal
+                        if (parsedInner && (parsedInner.message || parsedInner.text || parsedInner.output)) {
+                            console.log(`[RELAY] JSON aninhado detectado na chave '${key}'. Extraindo payload.`);
+                            payloadData = parsedInner;
+                            break; // Encontramos o payload real, paramos de procurar
+                        }
+                    } catch (e) {
+                        // Não era um JSON válido, ignoramos e mantemos o original
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error('[RELAY] Erro ao processar payload:', err);
+    }
+    // -------------------------------------------
+
+    const payloadString = JSON.stringify(payloadData);
     let clientsCount = 0;
 
     // Retransmite para todos os clientes (Chat) conectados via WebSocket
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(payload);
+            client.send(payloadString);
             clientsCount++;
         }
     });
 
-    console.log(`[RELAY] Enviado para ${clientsCount} cliente(s) conectado(s).`);
+    console.log(`[RELAY] Enviado para ${clientsCount} cliente(s): ${payloadString.substring(0, 100)}...`);
     
     // Responde 200 OK para o N8N não dar erro
     res.status(200).send('OK');
@@ -62,7 +93,7 @@ wss.on('connection', (ws) => {
 server.listen(PORT, () => {
     console.log(`\nServidor rodando na porta ${PORT}`);
     console.log(`\nPARA TESTAR: Envie um POST para a URL do seu Ngrok:`);
-    console.log(`POST https://[ID_DO_NGROK].ngrok-free.app/api/webhook-receiver`);
-    console.log(`Body: { "message": "Olá mundo" }`);
+    console.log(`POST https://f7304bb22aa2.ngrok-free.app/api/webhook-receiver`);
+    console.log(`Body: { "oi": "{\\"message\\": \\"Olá mundo\\"}" }`);
     console.log(`--------------------------------------------------\n`);
 });
