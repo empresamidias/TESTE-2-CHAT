@@ -16,6 +16,10 @@ app.use(bodyParser.json());
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// Buffer para armazenar as últimas mensagens (Histórico recente)
+const messageBuffer = [];
+const MAX_BUFFER_SIZE = 50;
+
 console.log('--------------------------------------------------');
 console.log(' N8N Chat Relay Server');
 console.log('--------------------------------------------------');
@@ -56,6 +60,13 @@ app.post('/api/webhook-receiver', (req, res) => {
     // -------------------------------------------
 
     const payloadString = JSON.stringify(payloadData);
+    
+    // Armazena no buffer (para clientes que conectarem depois)
+    messageBuffer.push(payloadString);
+    if (messageBuffer.length > MAX_BUFFER_SIZE) {
+        messageBuffer.shift(); // Remove a mais antiga se passar do limite
+    }
+
     let clientsCount = 0;
 
     // Retransmite para todos os clientes (Chat) conectados via WebSocket
@@ -66,7 +77,7 @@ app.post('/api/webhook-receiver', (req, res) => {
         }
     });
 
-    console.log(`[RELAY] Enviado para ${clientsCount} cliente(s): ${payloadString.substring(0, 100)}...`);
+    console.log(`[RELAY] Enviado para ${clientsCount} cliente(s). Armazenado no buffer (${messageBuffer.length} msgs).`);
     
     // Responde 200 OK para o N8N não dar erro
     res.status(200).send('OK');
@@ -74,7 +85,7 @@ app.post('/api/webhook-receiver', (req, res) => {
 
 // Health Check
 app.get('/', (req, res) => {
-    res.send({ status: 'active', clients: wss.clients.size });
+    res.send({ status: 'active', clients: wss.clients.size, bufferSize: messageBuffer.length });
 });
 
 // Gerenciamento de Conexões WS
@@ -86,6 +97,14 @@ wss.on('connection', (ws) => {
         text: 'Conectado ao servidor de retransmissão.'
     }));
 
+    // ENVIAR HISTÓRICO: Se houver mensagens no buffer, envia para o novo cliente imediatamente
+    if (messageBuffer.length > 0) {
+        console.log(`[WS] Enviando ${messageBuffer.length} mensagens do histórico para o novo cliente.`);
+        messageBuffer.forEach((msg) => {
+            ws.send(msg);
+        });
+    }
+
     ws.on('close', () => console.log('[WS] Cliente desconectado'));
     ws.on('error', (err) => console.error('[WS] Erro:', err));
 });
@@ -93,7 +112,7 @@ wss.on('connection', (ws) => {
 server.listen(PORT, () => {
     console.log(`\nServidor rodando na porta ${PORT}`);
     console.log(`\nPARA TESTAR: Envie um POST para a URL do seu Ngrok:`);
-    console.log(`POST https://f7304bb22aa2.ngrok-free.app/api/webhook-receiver`);
+    console.log(`POST https://SEU_NGROK_URL/api/webhook-receiver`);
     console.log(`Body: { "oi": "{\\"message\\": \\"Olá mundo\\"}" }`);
     console.log(`--------------------------------------------------\n`);
 });

@@ -4,9 +4,9 @@ import { ConnectionStatus, Message, SenderType } from './types';
 import { ChatMessage } from './components/ChatMessage';
 
 // URL fixa do Relay Server (Ngrok) atualizada
-const RELAY_WS_URL = 'wss://2a4e52620b6a.ngrok-free.app';
+const RELAY_WS_URL = 'wss://747a2340fb66.ngrok-free.app';
 // URL HTTP para exibição nas instruções
-const RELAY_HTTP_URL = 'https://2a4e52620b6a.ngrok-free.app';
+const RELAY_HTTP_URL = 'https://747a2340fb66.ngrok-free.app';
 
 const App: React.FC = () => {
   // --- State ---
@@ -157,6 +157,14 @@ const App: React.FC = () => {
   // --- Helper: Add Message ---
   const addMessage = (text: string, sender: SenderType, debugInfo?: any) => {
     setMessages(prev => {
+        // Evitar duplicatas exatas em curto espaço de tempo (opcional, mas bom para histórico)
+        const isDuplicate = prev.some(m => 
+            m.text === text && 
+            m.sender === sender && 
+            (new Date().getTime() - new Date(m.timestamp).getTime() < 1000)
+        );
+        if (isDuplicate) return prev;
+
         const newMessage: Message = {
             id: Date.now().toString() + Math.random().toString(),
             text,
