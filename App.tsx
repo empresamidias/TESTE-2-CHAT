@@ -3,8 +3,10 @@ import { Send, Settings, Activity, Plug, AlertCircle, RefreshCw, ArrowDownToLine
 import { ConnectionStatus, Message, SenderType } from './types';
 import { ChatMessage } from './components/ChatMessage';
 
-// URL fixa do Relay Server (Ngrok) conforme solicitado
-const RELAY_WS_URL = 'wss://bfaf448d26b7.ngrok-free.app';
+// URL fixa do Relay Server (Ngrok) atualizada
+const RELAY_WS_URL = 'wss://2a4e52620b6a.ngrok-free.app';
+// URL HTTP para exibição nas instruções
+const RELAY_HTTP_URL = 'https://2a4e52620b6a.ngrok-free.app';
 
 const App: React.FC = () => {
   // --- State ---
@@ -288,7 +290,7 @@ const App: React.FC = () => {
                 <p>1. Insira a URL do seu Webhook N8N (<strong>Outbound</strong>) abaixo.</p>
                 <p>2. No seu N8N, configure o último nó para fazer um POST para a URL de resposta (<strong>Inbound</strong>):</p>
                 <div className="bg-black/50 p-3 rounded border border-slate-600 font-mono text-xs text-emerald-300 break-all select-all">
-                    https://bfaf448d26b7.ngrok-free.app/api/webhook-receiver
+                    {RELAY_HTTP_URL}/api/webhook-receiver
                 </div>
                 <p className="text-xs text-slate-500 italic mt-1">Certifique-se que o server.js está rodando.</p>
               </div>
@@ -387,7 +389,7 @@ const App: React.FC = () => {
             <h3 className="text-slate-200 font-semibold mb-2">Relay Status</h3>
             <div className="flex items-center gap-2 mb-2">
                 <div className={`w-2 h-2 rounded-full ${inboundConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                <span className="text-xs font-mono">{RELAY_WS_URL}</span>
+                <span className="text-xs font-mono">{RELAY_HTTP_URL}</span>
             </div>
             <p className="text-xs">
               O chat tenta conectar automaticamente. Use o simulador abaixo se não estiver usando o server.js.

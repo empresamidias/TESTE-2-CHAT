@@ -61,6 +61,8 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, () => {
     console.log(`\nServidor rodando na porta ${PORT}`);
-    console.log(`1. Endpoint para o N8N: [URL_DO_NGROK]/api/webhook-receiver`);
+    console.log(`\nPARA TESTAR: Envie um POST para a URL do seu Ngrok:`);
+    console.log(`POST https://[ID_DO_NGROK].ngrok-free.app/api/webhook-receiver`);
+    console.log(`Body: { "message": "Olá mundo" }`);
     console.log(`--------------------------------------------------\n`);
 });
