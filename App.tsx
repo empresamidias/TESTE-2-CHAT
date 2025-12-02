@@ -1,7 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Settings, Activity, Plug, AlertCircle, RefreshCw, ArrowDownToLine, Terminal } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Settings, Activity, Plug, AlertCircle, RefreshCw, ArrowDownToLine, Terminal, Radio } from 'lucide-react';
 import { ConnectionStatus, Message, SenderType } from './types';
 import { ChatMessage } from './components/ChatMessage';
+
+// URL fixa do Relay Server (Ngrok) conforme solicitado
+const RELAY_WS_URL = 'wss://bfaf448d26b7.ngrok-free.app';
 
 const App: React.FC = () => {
   // --- State ---
@@ -13,6 +16,9 @@ const App: React.FC = () => {
   const [inputText, setInputText] = useState<string>('');
   const [showConfig, setShowConfig] = useState<boolean>(true);
   const [debugInput, setDebugInput] = useState<string>('{\n  "message": "Olá do N8N!",\n  "data": {\n    "key": "value"\n  }\n}');
+  
+  // Estado para conexão do Relay (Inbound)
+  const [inboundConnected, setInboundConnected] = useState<boolean>(false);
 
   // Ref for auto-scrolling
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -21,6 +27,76 @@ const App: React.FC = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // --- WebSocket Connection (INBOUND) ---
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let reconnectTimer: any = null;
+
+    const connectWs = () => {
+      console.log(`[WS] Conectando ao Relay: ${RELAY_WS_URL}`);
+      try {
+        ws = new WebSocket(RELAY_WS_URL);
+
+        ws.onopen = () => {
+          console.log('[WS] Conectado ao servidor de retransmissão.');
+          setInboundConnected(true);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            // Ignorar mensagens de sistema internas do WS se não forem payload
+            if (data.type === 'SYSTEM') {
+               console.log('[WS System]', data.text);
+               return;
+            }
+
+            console.group("[Webhook Inbound Real-time]");
+            console.log("Payload:", data);
+            console.groupEnd();
+
+            // Lógica de exibição (Texto ou fallback)
+            const textDisplay = data.message || data.text || data.output || JSON.stringify(data);
+
+            const debugInfo = {
+              status: 200,
+              body: data,
+              timestamp: new Date().toISOString()
+            };
+
+            addMessage(textDisplay, SenderType.BOT, debugInfo);
+
+          } catch (e) {
+            console.error('[WS] Erro ao processar mensagem:', e);
+          }
+        };
+
+        ws.onclose = () => {
+          console.log('[WS] Desconectado. Tentando reconectar em 5s...');
+          setInboundConnected(false);
+          reconnectTimer = setTimeout(connectWs, 5000);
+        };
+
+        ws.onerror = (err) => {
+          console.error('[WS] Erro na conexão:', err);
+          ws?.close();
+        };
+
+      } catch (error) {
+        console.error('[WS] Falha crítica na inicialização:', error);
+        reconnectTimer = setTimeout(connectWs, 5000);
+      }
+    };
+
+    connectWs();
+
+    return () => {
+      if (ws) ws.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, []); // Executa apenas uma vez ao montar o componente
 
   // --- 1. ABERTURA DE CONEXÃO (GET) ---
   const connectToWebhook = async (url: string) => {
@@ -78,14 +154,16 @@ const App: React.FC = () => {
 
   // --- Helper: Add Message ---
   const addMessage = (text: string, sender: SenderType, debugInfo?: any) => {
-    const newMessage: Message = {
-      id: Date.now().toString() + Math.random().toString(),
-      text,
-      sender,
-      timestamp: new Date(),
-      debugInfo
-    };
-    setMessages(prev => [...prev, newMessage]);
+    setMessages(prev => {
+        const newMessage: Message = {
+            id: Date.now().toString() + Math.random().toString(),
+            text,
+            sender,
+            timestamp: new Date(),
+            debugInfo
+        };
+        return [...prev, newMessage];
+    });
   };
 
   const addSystemMessage = (text: string) => {
@@ -135,32 +213,17 @@ const App: React.FC = () => {
     }
   };
 
-  // --- 4. & 5. RECEBENDO MENSAGENS (Inbound Simulation) ---
-  // Since we cannot run a real server in the browser, this function simulates 
-  // the "POST /webhook-inbound" endpoint logic requested.
+  // --- SIMULATION (MANUAL FALLBACK) ---
   const handleSimulateInbound = () => {
     try {
       const parsedBody = JSON.parse(debugInput);
-      
-      // LOGIC REQUESTED:
-      // 1. Show full JSON in console
-      console.group("[Webhook Inbound Simulated]");
-      console.log("Status: 200");
-      console.log("Full Body:", parsedBody);
-      console.groupEnd();
-
-      // 2. Determine text to show (fallback to stringified body if no "message" or "text" field)
       const textDisplay = parsedBody.message || parsedBody.text || parsedBody.output || JSON.stringify(parsedBody);
-
-      // 3. Show debug block in chat
       const debugData = {
         status: 200,
         body: parsedBody,
         timestamp: new Date().toISOString()
       };
-
       addMessage(textDisplay, SenderType.BOT, debugData);
-
     } catch (e) {
       alert("JSON inválido para simulação.");
     }
@@ -174,20 +237,34 @@ const App: React.FC = () => {
         
         {/* Header */}
         <header className="h-16 border-b border-slate-700 bg-slate-800/50 flex items-center justify-between px-6 backdrop-blur-sm z-10">
-          <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.5)] ${
-              connectionStatus === ConnectionStatus.CONNECTED ? 'bg-emerald-500 shadow-emerald-500/50' : 
-              connectionStatus === ConnectionStatus.CONNECTING ? 'bg-yellow-500 animate-pulse' :
-              connectionStatus === ConnectionStatus.ERROR ? 'bg-red-500' : 'bg-slate-500'
-            }`} />
-            <div>
-              <h1 className="font-semibold text-lg tracking-wide text-white">N8N Webhook Chat</h1>
-              <p className="text-xs text-slate-400">
-                {connectionStatus === ConnectionStatus.CONNECTED ? 'Conectado (Aguardando eventos)' :
-                 connectionStatus === ConnectionStatus.CONNECTING ? `Conectando... (${retryCount}/3)` :
-                 connectionStatus === ConnectionStatus.ERROR ? 'Erro de conexão' : 'Desconectado'}
-              </p>
+          <div className="flex items-center gap-4">
+            
+            {/* Status do Chat (Outbound) */}
+            <div className="flex items-center gap-2" title="Conexão Webhook (Envio)">
+                <div className={`w-3 h-3 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.5)] ${
+                connectionStatus === ConnectionStatus.CONNECTED ? 'bg-emerald-500 shadow-emerald-500/50' : 
+                connectionStatus === ConnectionStatus.CONNECTING ? 'bg-yellow-500 animate-pulse' :
+                connectionStatus === ConnectionStatus.ERROR ? 'bg-red-500' : 'bg-slate-500'
+                }`} />
+                <div className="flex flex-col">
+                    <h1 className="font-semibold text-sm tracking-wide text-white leading-tight">N8N Webhook Chat</h1>
+                    <span className="text-[10px] text-slate-400">Outbound</span>
+                </div>
             </div>
+
+            <div className="h-6 w-px bg-slate-700 mx-2"></div>
+
+            {/* Status do Inbound (Relay) */}
+             <div className="flex items-center gap-2" title={`Inbound Relay: ${RELAY_WS_URL}`}>
+                <Radio size={14} className={inboundConnected ? "text-emerald-400 animate-pulse" : "text-slate-600"} />
+                <div className="flex flex-col">
+                    <span className={`text-xs font-medium ${inboundConnected ? 'text-emerald-400' : 'text-slate-500'}`}>
+                        {inboundConnected ? 'Inbound Online' : 'Inbound Offline'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 hidden md:inline">Relay Server</span>
+                </div>
+            </div>
+
           </div>
           <button 
             onClick={() => setShowConfig(!showConfig)}
@@ -207,12 +284,17 @@ const App: React.FC = () => {
                 <h2 className="text-2xl font-bold text-white">Configurar Webhook</h2>
               </div>
               
-              <p className="text-slate-400 mb-6 leading-relaxed">
-                Insira a URL do seu Webhook N8N. O sistema fará um teste <strong>GET</strong> obrigatório para validar a conexão antes de liberar o chat.
-              </p>
+              <div className="text-slate-400 mb-6 leading-relaxed text-sm space-y-2">
+                <p>1. Insira a URL do seu Webhook N8N (<strong>Outbound</strong>) abaixo.</p>
+                <p>2. No seu N8N, configure o último nó para fazer um POST para a URL de resposta (<strong>Inbound</strong>):</p>
+                <div className="bg-black/50 p-3 rounded border border-slate-600 font-mono text-xs text-emerald-300 break-all select-all">
+                    https://bfaf448d26b7.ngrok-free.app/api/webhook-receiver
+                </div>
+                <p className="text-xs text-slate-500 italic mt-1">Certifique-se que o server.js está rodando.</p>
+              </div>
 
               <form onSubmit={handleConfigSubmit}>
-                <label className="block text-xs font-semibold uppercase text-slate-500 mb-2 tracking-wider">Webhook URL</label>
+                <label className="block text-xs font-semibold uppercase text-slate-500 mb-2 tracking-wider">Webhook N8N URL (Seu Endpoint)</label>
                 <input 
                   type="url" 
                   value={inputUrl}
@@ -257,6 +339,11 @@ const App: React.FC = () => {
             <div className="h-full flex flex-col items-center justify-center text-slate-600 space-y-4">
               <Activity size={48} className="opacity-20" />
               <p>Conexão validada. Envie uma mensagem para iniciar.</p>
+              {!inboundConnected && (
+                 <p className="text-xs text-red-400 bg-red-900/20 px-3 py-1 rounded">
+                    Atenção: Servidor de recebimento (Relay) desconectado.
+                 </p>
+              )}
             </div>
           )}
           
@@ -273,7 +360,7 @@ const App: React.FC = () => {
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder={connectionStatus === ConnectionStatus.CONNECTED ? "Digite sua mensagem para o webhook..." : "Aguardando conexão..."}
+              placeholder={connectionStatus === ConnectionStatus.CONNECTED ? "Digite sua mensagem..." : "Aguardando conexão..."}
               disabled={connectionStatus !== ConnectionStatus.CONNECTED}
               className="flex-1 bg-slate-900 text-white placeholder-slate-500 border border-slate-600 focus:border-blue-500 rounded-xl px-4 py-3 outline-none transition-all disabled:opacity-50"
             />
@@ -288,25 +375,22 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* --- Inbound Simulation / Debug Panel --- */}
-      {/* 
-         NOTA DE IMPLEMENTAÇÃO:
-         Como este é um app Frontend (React), não existe um servidor para hospedar o endpoint "POST /webhook-inbound".
-         Para cumprir os requisitos de lógica (recebimento, processamento, debug),
-         criamos este painel que SIMULA a chegada de um webhook externo.
-      */}
-      <div className="w-full md:w-80 lg:w-96 bg-slate-950 border-l border-slate-800 flex flex-col overflow-hidden">
+      {/* --- Debug Panel (Opcional agora, mas mantido para testes manuais) --- */}
+      <div className="hidden lg:flex w-80 bg-slate-950 border-l border-slate-800 flex-col overflow-hidden">
         <div className="p-4 bg-slate-900 border-b border-slate-800 font-semibold text-slate-300 flex items-center gap-2">
             <Terminal size={18} className="text-purple-400" />
-            <span>Simulador Inbound</span>
+            <span>Debug / Manual</span>
         </div>
         
         <div className="p-4 flex-1 flex flex-col gap-4 overflow-y-auto">
           <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-800 text-sm text-slate-400">
-            <h3 className="text-slate-200 font-semibold mb-2">Endpoint Virtual</h3>
-            <code className="block bg-black p-2 rounded text-xs font-mono text-purple-300 mb-2">POST /webhook-inbound</code>
+            <h3 className="text-slate-200 font-semibold mb-2">Relay Status</h3>
+            <div className="flex items-center gap-2 mb-2">
+                <div className={`w-2 h-2 rounded-full ${inboundConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                <span className="text-xs font-mono">{RELAY_WS_URL}</span>
+            </div>
             <p className="text-xs">
-              Como o navegador não recebe POSTs diretos, use esta área para simular a resposta assíncrona do N8N.
+              O chat tenta conectar automaticamente. Use o simulador abaixo se não estiver usando o server.js.
             </p>
           </div>
 
